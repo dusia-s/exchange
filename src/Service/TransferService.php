@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Entity\Transaction;
+use App\Enum\Currency;
 use App\Exception\InsufficientFundsException;
 use App\Exception\SameWalletTransferException;
 use App\Exception\WalletBlockedException;
@@ -17,6 +18,9 @@ use DateTimeImmutable;
 
 readonly class TransferService
 {
+    /** Transfers worth more than this, measured in EUR whatever the currencies, go to manual fraud review. */
+    private const string FRAUD_CHECK_THRESHOLD_EUR = '15000';
+
     public function __construct(
         private WalletRepositoryInterface $walletRepository,
         private TransactionRepositoryInterface $transactionRepository,
@@ -84,12 +88,23 @@ readonly class TransferService
                 toCurrency: $toCurrency,
                 spread: $spread,
                 exchangeRate: bcround($exchangeRate, 6),
-                requiresAntiFraudCheck: bccomp($toAmount, '15000', Money::SCALE) > 0,
+                requiresAntiFraudCheck: $this->exceedsFraudCheckThreshold($fromAmount, $fromCurrency),
             );
 
             $this->transactionRepository->save($transaction);
 
             return $transaction;
         });
+    }
+
+    private function exceedsFraudCheckThreshold(string $fromAmount, Currency $fromCurrency): bool
+    {
+        $valueInEur = bcmul(
+            $fromAmount,
+            $this->exchangeRateService->getExchangeRateBetween($fromCurrency, Currency::EUR),
+            Money::CALCULATION_SCALE,
+        );
+
+        return bccomp($valueInEur, self::FRAUD_CHECK_THRESHOLD_EUR, Money::SCALE) > 0;
     }
 }

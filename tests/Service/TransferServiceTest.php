@@ -19,6 +19,7 @@ use App\Service\ExchangeRateService;
 use App\Service\SpreadService;
 use App\Service\TransferService;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 #[AllowMockObjectsWithoutExpectations]
@@ -70,8 +71,9 @@ class TransferServiceTest extends TestCase
             ->with(2)
             ->willReturn($toWallet);
 
+        // Once for the conversion and once for the fraud threshold, which is measured in EUR.
         $this->exchangeRateService
-            ->expects(self::once())
+            ->expects(self::exactly(2))
             ->method('getExchangeRateBetween')
             ->with(Currency::PLN, Currency::EUR)
             ->willReturn('0.25');
@@ -108,6 +110,55 @@ class TransferServiceTest extends TestCase
         self::assertSame('1.00', $transaction->getSpread());
         self::assertSame(Currency::PLN, $transaction->getFromCurrency());
         self::assertSame(Currency::EUR, $transaction->getToCurrency());
+    }
+
+    /**
+     * Uses the real rate and spread services, so the threshold is checked against the configured rates.
+     */
+    #[DataProvider('fraudThresholdProvider')]
+    public function testFraudReviewDependsOnValueInEur(
+        Currency $fromCurrency,
+        Currency $toCurrency,
+        string $amount,
+        bool $expectedReview,
+    ): void {
+        $fromWallet = Wallet::create(1, $fromCurrency);
+        $fromWallet->setBalance('100000000.0000');
+        $this->stubWallets([
+            [1, $fromWallet],
+            [2, Wallet::create(1, $toCurrency)],
+        ]);
+
+        $transferService = new TransferService(
+            $this->walletRepository,
+            $this->transactionRepository,
+            new ExchangeRateService(),
+            new SpreadService(),
+            $this->databaseTransactionManager,
+        );
+
+        $transaction = $transferService->transfer(1, 1, 2, $amount);
+
+        self::assertSame($expectedReview, $transaction->requiresAntiFraudCheck());
+        self::assertSame(
+            $expectedReview ? TransactionStatus::FRAUD_REVIEW : TransactionStatus::PENDING,
+            $transaction->getStatus(),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{Currency, Currency, string, bool}>
+     */
+    public static function fraudThresholdProvider(): iterable
+    {
+        // Rates are quoted in PLN: EUR 4.2389, GBP 4.881, HUF 0.0118, JPY 0.0229.
+        yield 'EUR exactly at the threshold' => [Currency::EUR, Currency::PLN, '15000', false];
+        yield 'EUR just over the threshold' => [Currency::EUR, Currency::PLN, '15000.0001', true];
+        yield 'GBP under 15000 but worth ~16121 EUR' => [Currency::GBP, Currency::PLN, '14000', true];
+        yield 'PLN worth ~14155 EUR, receiving over 15000 HUF' => [Currency::PLN, Currency::HUF, '60000', false];
+        yield 'PLN worth ~15098 EUR' => [Currency::PLN, Currency::USD, '64000', true];
+        yield 'HUF worth ~2784 EUR' => [Currency::HUF, Currency::EUR, '1000000', false];
+        yield 'JPY worth ~16207 EUR' => [Currency::JPY, Currency::GBP, '3000000', true];
     }
 
     public function testTransferThrowsWhenSourceAndTargetWalletAreTheSame(): void
