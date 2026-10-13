@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Entity\Transaction;
+use App\Exception\InsufficientFundsException;
 use App\Exception\WalletNotFoundException;
 use App\Repository\TransactionRepositoryInterface;
 use App\Repository\WalletRepositoryInterface;
 use App\Util\Money;
+use DateTimeImmutable;
 
 readonly class TransferService
 {
@@ -38,6 +40,10 @@ readonly class TransferService
 
         $fromAmount = Money::round($fromAmount);
 
+        if (bccomp($fromWallet->getBalance(), $fromAmount, Money::SCALE) < 0) {
+            throw new InsufficientFundsException($fromWalletId);
+        }
+
         $fromCurrency = $fromWallet->getCurrency();
         $toCurrency = $toWallet->getCurrency();
 
@@ -46,11 +52,10 @@ readonly class TransferService
         $spread = $this->spreadService->calculateSpread($rawToAmount, $fromCurrency, $toCurrency);
         $toAmount = Money::round(bcsub($rawToAmount, $spread, Money::CALCULATION_SCALE));
 
+        // Funds are held on the source wallet now; the target wallet is credited when the transaction is completed.
         $fromWallet->setBalance(bcsub($fromWallet->getBalance(), $fromAmount, Money::SCALE));
-        $toWallet->setBalance(bcadd($toWallet->getBalance(), $toAmount, Money::SCALE));
-
+        $fromWallet->setLastActivityAt(new DateTimeImmutable());
         $this->walletRepository->save($fromWallet);
-        $this->walletRepository->save($toWallet);
 
         $transaction = Transaction::create(
             fromWalletId: $fromWalletId,
