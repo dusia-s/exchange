@@ -10,6 +10,7 @@ use App\Enum\Currency;
 use App\Enum\TransactionStatus;
 use App\Exception\InsufficientFundsException;
 use App\Exception\SameWalletTransferException;
+use App\Exception\WalletBlockedException;
 use App\Exception\WalletNotFoundException;
 use App\Repository\DatabaseTransactionManagerInterface;
 use App\Repository\TransactionRepositoryInterface;
@@ -119,6 +120,47 @@ class TransferServiceTest extends TestCase
         $this->expectException(SameWalletTransferException::class);
 
         $this->transferService->transfer(1, 1, 1, '100.00');
+    }
+
+    public function testTransferThrowsWhenFromWalletBlocked(): void
+    {
+        $fromWallet = Wallet::create(1, Currency::PLN);
+        $fromWallet->setBalance('500.0000');
+        $fromWallet->setIsBlocked(true);
+
+        $this->stubWallets([
+            [1, $fromWallet],
+            [2, Wallet::create(1, Currency::EUR)],
+        ]);
+
+        $this->walletRepository->expects(self::never())->method('save');
+        $this->transactionRepository->expects(self::never())->method('save');
+
+        $this->expectException(WalletBlockedException::class);
+        $this->expectExceptionMessage('Wallet 1 is blocked.');
+
+        $this->transferService->transfer(1, 1, 2, '100.00');
+    }
+
+    public function testTransferThrowsWhenToWalletBlocked(): void
+    {
+        $fromWallet = Wallet::create(1, Currency::PLN);
+        $fromWallet->setBalance('500.0000');
+        $toWallet = Wallet::create(1, Currency::EUR);
+        $toWallet->setIsBlocked(true);
+
+        $this->stubWallets([
+            [1, $fromWallet],
+            [2, $toWallet],
+        ]);
+
+        $this->walletRepository->expects(self::never())->method('save');
+        $this->transactionRepository->expects(self::never())->method('save');
+
+        $this->expectException(WalletBlockedException::class);
+        $this->expectExceptionMessage('Wallet 2 is blocked.');
+
+        $this->transferService->transfer(1, 1, 2, '100.00');
     }
 
     public function testTransferThrowsWhenInsufficientFunds(): void

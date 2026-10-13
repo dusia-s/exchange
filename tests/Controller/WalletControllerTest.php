@@ -369,6 +369,30 @@ class WalletControllerTest extends TestCase
     /**
      * @throws Throwable
      */
+    public function testTransferReturnsUnprocessableWhenWalletBlocked(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->transferService
+            ->method('transfer')
+            ->willThrowException(new WalletBlockedException(2));
+
+        $request = new Request(content: json_encode([
+            'fromWalletId' => 1,
+            'toWalletId' => 2,
+            'amount' => '100.00',
+        ], JSON_THROW_ON_ERROR));
+        $response = $this->controller->transfer($request, $user);
+
+        self::assertSame(422, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Wallet 2 is blocked.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
     public function testTransferReturnsUnprocessableWhenInsufficientFunds(): void
     {
         $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());

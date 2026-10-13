@@ -25,7 +25,7 @@ final readonly class TransactionProcessorService
     }
 
     /**
-     * Completes the transaction, or rejects it when a wallet is missing.
+     * Completes the transaction, or rejects it when a wallet is missing or blocked.
      *
      * @return bool false when the transaction was already processed elsewhere; $transaction then reflects its current state
      */
@@ -39,7 +39,7 @@ final readonly class TransactionProcessorService
 
             [$fromWallet, $toWallet] = $this->lockWallets($locked->getFromWalletId(), $locked->getToWalletId());
 
-            if (null === $fromWallet || null === $toWallet) {
+            if (null === $fromWallet || null === $toWallet || $fromWallet->isBlocked() || $toWallet->isBlocked()) {
                 $this->refundAndReject($locked, $fromWallet);
             } else {
                 // The source wallet was already debited when the transfer was created.

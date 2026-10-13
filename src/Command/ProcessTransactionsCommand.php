@@ -43,7 +43,7 @@ final class ProcessTransactionsCommand extends Command
             } elseif (TransactionStatus::COMPLETED === $transaction->getStatus()) {
                 $io->success(sprintf('Transaction #%d completed.', $transaction->getId()));
             } else {
-                $io->warning(sprintf('Transaction #%d rejected (wallet not found).', $transaction->getId()));
+                $io->warning(sprintf('Transaction #%d rejected (wallet missing or blocked).', $transaction->getId()));
             }
         }
 
@@ -66,7 +66,7 @@ final class ProcessTransactionsCommand extends Command
                 } elseif (TransactionStatus::COMPLETED === $transaction->getStatus()) {
                     $io->success(sprintf('Transaction #%d approved and completed.', $transaction->getId()));
                 } else {
-                    $io->warning(sprintf('Transaction #%d rejected (wallet not found).', $transaction->getId()));
+                    $io->warning(sprintf('Transaction #%d rejected (wallet missing or blocked).', $transaction->getId()));
                 }
             } elseif (!$this->transactionProcessorService->reject($transaction)) {
                 $this->warnAlreadyProcessed($io, $transaction);

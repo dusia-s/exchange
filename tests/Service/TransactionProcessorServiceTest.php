@@ -183,6 +183,55 @@ class TransactionProcessorServiceTest extends TestCase
         self::assertSame('500.0000', $fromWallet->getBalance());
     }
 
+    public function testCompleteRejectsAndRefundsWhenToWalletBlocked(): void
+    {
+        $fromWallet = Wallet::create(1, Currency::PLN);
+        $fromWallet->setBalance('400.0000');
+        $toWallet = Wallet::create(1, Currency::EUR);
+        $toWallet->setBalance('100.0000');
+        $toWallet->setIsBlocked(true);
+
+        $transaction = $this->makeTransaction(requiresAntiFraudCheck: false);
+
+        $this->walletRepository
+            ->method('findByIdForUpdate')
+            ->willReturnMap([
+                [1, $fromWallet],
+                [2, $toWallet],
+            ]);
+
+        $this->companyWalletRepository->expects(self::never())->method('addToBalance');
+
+        $this->transactionProcessorService->complete($transaction);
+
+        self::assertSame(TransactionStatus::REJECTED, $transaction->getStatus());
+        self::assertSame('500.0000', $fromWallet->getBalance());
+        self::assertSame('100.0000', $toWallet->getBalance());
+    }
+
+    public function testCompleteRejectsAndRefundsWhenFromWalletBlocked(): void
+    {
+        $fromWallet = Wallet::create(1, Currency::PLN);
+        $fromWallet->setBalance('400.0000');
+        $fromWallet->setIsBlocked(true);
+        $toWallet = Wallet::create(1, Currency::EUR);
+
+        $transaction = $this->makeTransaction(requiresAntiFraudCheck: false);
+
+        $this->walletRepository
+            ->method('findByIdForUpdate')
+            ->willReturnMap([
+                [1, $fromWallet],
+                [2, $toWallet],
+            ]);
+
+        $this->transactionProcessorService->complete($transaction);
+
+        self::assertSame(TransactionStatus::REJECTED, $transaction->getStatus());
+        self::assertSame('500.0000', $fromWallet->getBalance());
+        self::assertSame('0.0000', $toWallet->getBalance());
+    }
+
     public function testRejectRefundsSourceWalletAndSetsRejectedStatus(): void
     {
         $fromWallet = Wallet::create(1, Currency::PLN);

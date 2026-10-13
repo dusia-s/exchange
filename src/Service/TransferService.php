@@ -7,6 +7,7 @@ namespace App\Service;
 use App\Entity\Transaction;
 use App\Exception\InsufficientFundsException;
 use App\Exception\SameWalletTransferException;
+use App\Exception\WalletBlockedException;
 use App\Exception\WalletNotFoundException;
 use App\Repository\DatabaseTransactionManagerInterface;
 use App\Repository\TransactionRepositoryInterface;
@@ -45,6 +46,14 @@ readonly class TransferService
             $toWallet = $this->walletRepository->findById($toWalletId);
             if (null === $toWallet || $toWallet->getUserId() !== $userId) {
                 throw new WalletNotFoundException($toWalletId);
+            }
+
+            if ($fromWallet->isBlocked()) {
+                throw new WalletBlockedException($fromWalletId);
+            }
+
+            if ($toWallet->isBlocked()) {
+                throw new WalletBlockedException($toWalletId);
             }
 
             $fromAmount = Money::round($fromAmount);
