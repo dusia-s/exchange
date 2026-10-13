@@ -19,6 +19,7 @@ use App\Service\TransferService;
 use App\Service\WalletService;
 use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\Request;
 use Throwable;
@@ -267,6 +268,79 @@ class WalletControllerTest extends TestCase
 
         $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('Wallet 99 not found.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
+    #[DataProvider('malformedAmountProvider')]
+    public function testTransferReturnsBadRequestWhenAmountMalformed(mixed $amount, string $expectedError): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->transferService->expects(self::never())->method('transfer');
+
+        $request = new Request(content: json_encode([
+            'fromWalletId' => 1,
+            'toWalletId' => 2,
+            'amount' => $amount,
+        ], JSON_THROW_ON_ERROR));
+        $response = $this->controller->transfer($request, $user);
+
+        self::assertSame(400, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($expectedError, $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
+    #[DataProvider('malformedAmountProvider')]
+    public function testDepositReturnsBadRequestWhenAmountMalformed(mixed $amount, string $expectedError): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->depositService->expects(self::never())->method('deposit');
+
+        $request = new Request(content: json_encode(['amount' => $amount], JSON_THROW_ON_ERROR));
+        $response = $this->controller->deposit(5, $request, $user);
+
+        self::assertSame(400, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($expectedError, $data['error']);
+    }
+
+    /**
+     * @return iterable<string, array{mixed, string}>
+     */
+    public static function malformedAmountProvider(): iterable
+    {
+        yield 'scientific notation' => ['1e3', 'Amount must be a positive number.'];
+        yield 'leading whitespace' => [' 5', 'Amount must be a positive number.'];
+        yield 'zero' => ['0.0000', 'Amount must be a positive number.'];
+        yield 'array' => [['100'], 'Amount must be a positive number.'];
+        yield 'too many decimals' => ['0.00001', 'Amount must have at most 4 decimal places.'];
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function testDepositAcceptsJsonNumberAmount(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->depositService
+            ->expects(self::once())
+            ->method('deposit')
+            ->with(1, 5, '250.5')
+            ->willReturn(Wallet::create(1, Currency::PLN));
+
+        $request = new Request(content: json_encode(['amount' => 250.5], JSON_THROW_ON_ERROR));
+        $response = $this->controller->deposit(5, $request, $user);
+
+        self::assertSame(200, $response->getStatusCode());
     }
 
     /**

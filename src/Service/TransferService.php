@@ -8,6 +8,7 @@ use App\Entity\Transaction;
 use App\Exception\WalletNotFoundException;
 use App\Repository\TransactionRepositoryInterface;
 use App\Repository\WalletRepositoryInterface;
+use App\Util\Money;
 
 readonly class TransferService
 {
@@ -35,18 +36,18 @@ readonly class TransferService
             throw new WalletNotFoundException($toWalletId);
         }
 
+        $fromAmount = Money::round($fromAmount);
+
         $fromCurrency = $fromWallet->getCurrency();
         $toCurrency = $toWallet->getCurrency();
 
         $exchangeRate = $this->exchangeRateService->getExchangeRateBetween($fromCurrency, $toCurrency);
-        $rawToAmount = (float) $fromAmount * $exchangeRate;
+        $rawToAmount = bcmul($fromAmount, $exchangeRate, Money::CALCULATION_SCALE);
         $spread = $this->spreadService->calculateSpread($rawToAmount, $fromCurrency, $toCurrency);
-        $toAmount = $rawToAmount - (float) $spread;
+        $toAmount = Money::round(bcsub($rawToAmount, $spread, Money::CALCULATION_SCALE));
 
-        $toAmountFormatted = number_format($toAmount, 4, '.', '');
-
-        $fromWallet->setBalance($fromWallet->getBalance() - (float) $fromAmount);
-        $toWallet->setBalance($toWallet->getBalance() + (float) $toAmountFormatted);
+        $fromWallet->setBalance(bcsub($fromWallet->getBalance(), $fromAmount, Money::SCALE));
+        $toWallet->setBalance(bcadd($toWallet->getBalance(), $toAmount, Money::SCALE));
 
         $this->walletRepository->save($fromWallet);
         $this->walletRepository->save($toWallet);
@@ -55,12 +56,12 @@ readonly class TransferService
             fromWalletId: $fromWalletId,
             toWalletId: $toWalletId,
             fromAmount: $fromAmount,
-            toAmount: $toAmountFormatted,
+            toAmount: $toAmount,
             fromCurrency: $fromCurrency,
             toCurrency: $toCurrency,
             spread: $spread,
-            exchangeRate: number_format($exchangeRate, 6, '.', ''),
-            requiresAntiFraudCheck: $toAmount > 15_000,
+            exchangeRate: bcround($exchangeRate, 6),
+            requiresAntiFraudCheck: bccomp($toAmount, '15000', Money::SCALE) > 0,
         );
 
         $this->transactionRepository->save($transaction);

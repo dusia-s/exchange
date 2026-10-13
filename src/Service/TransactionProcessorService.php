@@ -8,6 +8,7 @@ use App\Entity\Transaction;
 use App\Enum\TransactionStatus;
 use App\Repository\TransactionRepositoryInterface;
 use App\Repository\WalletRepositoryInterface;
+use App\Util\Money;
 use DateTimeImmutable;
 
 final readonly class TransactionProcessorService
@@ -29,10 +30,10 @@ final readonly class TransactionProcessorService
             return;
         }
 
-        $fromWallet->setBalance($fromWallet->getBalance() - (float) $transaction->getFromAmount());
+        $fromWallet->setBalance(bcsub($fromWallet->getBalance(), $transaction->getFromAmount(), Money::SCALE));
         $fromWallet->setLastActivityAt(new DateTimeImmutable());
 
-        $toWallet->setBalance($toWallet->getBalance() + (float) $transaction->getToAmount());
+        $toWallet->setBalance(bcadd($toWallet->getBalance(), $transaction->getToAmount(), Money::SCALE));
         $toWallet->setLastActivityAt(new DateTimeImmutable());
 
         $this->walletRepository->save($fromWallet);

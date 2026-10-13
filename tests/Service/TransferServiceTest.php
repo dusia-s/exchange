@@ -52,8 +52,8 @@ class TransferServiceTest extends TestCase
             ->expects($this->atLeastOnce())
             ->method('getBalance')
             ->willReturnOnConsecutiveCalls(
-                5000.0,
-                4000.0
+                '5000.0000',
+                '4000.0000'
             );
         $fromWallet
             ->method('getUserId')
@@ -69,8 +69,8 @@ class TransferServiceTest extends TestCase
             ->expects($this->atLeastOnce())
             ->method('getBalance')
             ->willReturnOnConsecutiveCalls(
-                100.0,
-                349.0
+                '100.0000',
+                '349.0000'
             );
         $toWallet
             ->method('getUserId')
@@ -91,12 +91,12 @@ class TransferServiceTest extends TestCase
             ->expects(self::once())
             ->method('getExchangeRateBetween')
             ->with(Currency::PLN, Currency::EUR)
-            ->willReturn(0.25);
+            ->willReturn('0.25');
 
         $this->spreadService
             ->expects(self::once())
             ->method('calculateSpread')
-            ->with(250.0, Currency::PLN, Currency::EUR)
+            ->with('250.0000000000', Currency::PLN, Currency::EUR)
             ->willReturn('1.00');
 
         $this->walletRepository
@@ -111,11 +111,11 @@ class TransferServiceTest extends TestCase
 
         $transaction = $this->transferService->transfer($userId, 1, 2, '1000.00');
 
-        self::assertSame(4000.0, $fromWallet->getBalance());
-        self::assertSame(349.0, $toWallet->getBalance());
+        self::assertSame('4000.0000', $fromWallet->getBalance());
+        self::assertSame('349.0000', $toWallet->getBalance());
         self::assertSame(TransactionStatus::PENDING, $transaction->getStatus());
         self::assertFalse($transaction->requiresAntiFraudCheck());
-        self::assertSame('1000.00', $transaction->getFromAmount());
+        self::assertSame('1000.0000', $transaction->getFromAmount());
         self::assertSame('248.3775', $transaction->getToAmount());
         self::assertSame('0.250000', $transaction->getExchangeRate());
         self::assertSame('1.00', $transaction->getSpread());

@@ -15,6 +15,7 @@ use App\Repository\WalletRepositoryInterface;
 use App\Service\DepositService;
 use App\Service\TransferService;
 use App\Service\WalletService;
+use App\Util\Money;
 use JsonException;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -84,8 +85,9 @@ final class WalletController extends AbstractController
             }
         }
 
-        if (!is_numeric($data['amount']) || (float) $data['amount'] <= 0) {
-            return new JsonResponse(['error' => 'Amount must be a positive number.'], Response::HTTP_BAD_REQUEST);
+        $amountError = $this->validateAmount($data['amount']);
+        if (null !== $amountError) {
+            return new JsonResponse(['error' => $amountError], Response::HTTP_BAD_REQUEST);
         }
 
         try {
@@ -114,11 +116,12 @@ final class WalletController extends AbstractController
             return new JsonResponse(['error' => 'Missing required field: amount.'], Response::HTTP_BAD_REQUEST);
         }
 
-        if (!is_numeric($data['amount']) || (float) $data['amount'] <= 0) {
-            return new JsonResponse(['error' => 'Amount must be a positive number.'], Response::HTTP_BAD_REQUEST);
+        $amountError = $this->validateAmount($data['amount']);
+        if (null !== $amountError) {
+            return new JsonResponse(['error' => $amountError], Response::HTTP_BAD_REQUEST);
         }
 
-        if ((float) $data['amount'] > DepositService::MAX_AMOUNT) {
+        if (bccomp((string) $data['amount'], DepositService::MAX_AMOUNT, Money::SCALE) > 0) {
             return new JsonResponse(['error' => sprintf('Amount cannot exceed %s.', DepositService::MAX_AMOUNT)], Response::HTTP_BAD_REQUEST);
         }
 
@@ -135,5 +138,31 @@ final class WalletController extends AbstractController
         }
 
         return new JsonResponse(new WalletResponse($wallet));
+    }
+
+    /**
+     * Returns an error message, or null when the amount is a positive decimal the bcmath-based services can handle.
+     */
+    private function validateAmount(mixed $amount): ?string
+    {
+        if (!is_string($amount) && !is_int($amount) && !is_float($amount)) {
+            return 'Amount must be a positive number.';
+        }
+
+        $amount = (string) $amount;
+
+        if (1 !== preg_match('/^\d{1,11}(\.\d+)?$/', $amount)) {
+            return 'Amount must be a positive number.';
+        }
+
+        if (1 !== preg_match('/^\d+(\.\d{1,4})?$/', $amount)) {
+            return sprintf('Amount must have at most %d decimal places.', Money::SCALE);
+        }
+
+        if (bccomp($amount, '0', Money::SCALE) <= 0) {
+            return 'Amount must be a positive number.';
+        }
+
+        return null;
     }
 }
