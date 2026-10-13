@@ -9,6 +9,7 @@ use App\Entity\Wallet;
 use App\Enum\Currency;
 use App\Enum\TransactionStatus;
 use App\Exception\InsufficientFundsException;
+use App\Exception\SameWalletTransferException;
 use App\Exception\WalletNotFoundException;
 use App\Repository\TransactionRepositoryInterface;
 use App\Repository\WalletRepositoryInterface;
@@ -94,6 +95,17 @@ class TransferServiceTest extends TestCase
         self::assertSame('1.00', $transaction->getSpread());
         self::assertSame(Currency::PLN, $transaction->getFromCurrency());
         self::assertSame(Currency::EUR, $transaction->getToCurrency());
+    }
+
+    public function testTransferThrowsWhenSourceAndTargetWalletAreTheSame(): void
+    {
+        $this->walletRepository->expects(self::never())->method('findById');
+        $this->walletRepository->expects(self::never())->method('save');
+        $this->transactionRepository->expects(self::never())->method('save');
+
+        $this->expectException(SameWalletTransferException::class);
+
+        $this->transferService->transfer(1, 1, 1, '100.00');
     }
 
     public function testTransferThrowsWhenInsufficientFunds(): void

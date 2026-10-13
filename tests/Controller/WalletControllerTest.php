@@ -347,6 +347,28 @@ class WalletControllerTest extends TestCase
     /**
      * @throws Throwable
      */
+    public function testTransferReturnsBadRequestWhenWalletsAreTheSame(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->transferService->expects(self::never())->method('transfer');
+
+        $request = new Request(content: json_encode([
+            'fromWalletId' => 1,
+            'toWalletId' => 1,
+            'amount' => '100.00',
+        ], JSON_THROW_ON_ERROR));
+        $response = $this->controller->transfer($request, $user);
+
+        self::assertSame(400, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Source and target wallet must differ.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
     public function testTransferReturnsUnprocessableWhenInsufficientFunds(): void
     {
         $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
