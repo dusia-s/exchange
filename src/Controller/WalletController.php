@@ -120,7 +120,7 @@ final class WalletController extends AbstractController
         return new JsonResponse(new TransactionResponse($transaction), Response::HTTP_CREATED);
     }
 
-    #[Route('/{id}/deposit', methods: ['POST'])]
+    #[Route('/{id}/deposit', requirements: ['id' => '\d+'], methods: ['POST'])]
     public function deposit(int $id, Request $request, #[CurrentUser] User $user): JsonResponse
     {
         $data = $this->decodeJsonObject($request);
