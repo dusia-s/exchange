@@ -207,4 +207,14 @@ class TokenAuthenticatorTest extends TestCase
         self::assertSame(Response::HTTP_UNAUTHORIZED, $response->getStatusCode());
         self::assertSame('Token "abc123" is invalid.', $body['error']);
     }
+
+    public function testStartReturnsJsonUnauthorizedWhenTokenMissing(): void
+    {
+        $response = $this->tokenAuthenticator->start(new Request());
+
+        $body = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(Response::HTTP_UNAUTHORIZED, $response->getStatusCode());
+        self::assertSame('Bearer', $response->headers->get('WWW-Authenticate'));
+        self::assertStringStartsWith('Authentication required.', $body['error']);
+    }
 }
