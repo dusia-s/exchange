@@ -347,6 +347,53 @@ class WalletControllerTest extends TestCase
     /**
      * @throws Throwable
      */
+    #[DataProvider('invalidJsonBodyProvider')]
+    public function testEndpointsReturnBadRequestForInvalidJsonBody(string $body): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+        $request = new Request(content: $body);
+
+        foreach ([
+            $this->controller->create($request, $user),
+            $this->controller->transfer($request, $user),
+            $this->controller->deposit(5, $request, $user),
+        ] as $response) {
+            self::assertSame(400, $response->getStatusCode());
+
+            $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame('Request body must be a valid JSON object.', $data['error']);
+        }
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidJsonBodyProvider(): iterable
+    {
+        yield 'syntax error' => ['{bad json'];
+        yield 'string' => ['"PLN"'];
+        yield 'number' => ['123'];
+        yield 'list' => ['["PLN"]'];
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function testEmptyBodyReportsMissingField(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $response = $this->controller->create(new Request(content: ''), $user);
+
+        self::assertSame(400, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Missing required field: currency.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
     public function testTransferReturnsBadRequestWhenWalletsAreTheSame(): void
     {
         $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
