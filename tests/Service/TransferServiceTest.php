@@ -11,6 +11,7 @@ use App\Enum\TransactionStatus;
 use App\Exception\InsufficientFundsException;
 use App\Exception\SameWalletTransferException;
 use App\Exception\WalletNotFoundException;
+use App\Repository\DatabaseTransactionManagerInterface;
 use App\Repository\TransactionRepositoryInterface;
 use App\Repository\WalletRepositoryInterface;
 use App\Service\ExchangeRateService;
@@ -27,6 +28,7 @@ class TransferServiceTest extends TestCase
     private ExchangeRateService $exchangeRateService;
     private SpreadService $spreadService;
     private TransferService $transferService;
+    private DatabaseTransactionManagerInterface $databaseTransactionManager;
 
     protected function setUp(): void
     {
@@ -34,12 +36,17 @@ class TransferServiceTest extends TestCase
         $this->transactionRepository = $this->createMock(TransactionRepositoryInterface::class);
         $this->exchangeRateService = $this->createMock(ExchangeRateService::class);
         $this->spreadService = $this->createMock(SpreadService::class);
+        $this->databaseTransactionManager = $this->createMock(DatabaseTransactionManagerInterface::class);
+        $this->databaseTransactionManager
+            ->method('transactional')
+            ->willReturnCallback(static fn (callable $operation): mixed => $operation());
 
         $this->transferService = new TransferService(
             $this->walletRepository,
             $this->transactionRepository,
             $this->exchangeRateService,
             $this->spreadService,
+            $this->databaseTransactionManager,
         );
     }
 
@@ -52,12 +59,15 @@ class TransferServiceTest extends TestCase
         $toWallet->setBalance('100.0000');
 
         $this->walletRepository
-            ->expects(self::exactly(2))
+            ->expects(self::once())
+            ->method('findByIdForUpdate')
+            ->with(1)
+            ->willReturn($fromWallet);
+        $this->walletRepository
+            ->expects(self::once())
             ->method('findById')
-            ->willReturnMap([
-                [1, $fromWallet],
-                [2, $toWallet],
-            ]);
+            ->with(2)
+            ->willReturn($toWallet);
 
         $this->exchangeRateService
             ->expects(self::once())
@@ -81,6 +91,8 @@ class TransferServiceTest extends TestCase
             ->method('save')
             ->with($this->isInstanceOf(Transaction::class));
 
+        $this->databaseTransactionManager->expects(self::once())->method('transactional');
+
         $transaction = $this->transferService->transfer($userId, 1, 2, '1000.00');
 
         // Funds are held on the source wallet; the target wallet is only credited on completion.
@@ -99,7 +111,8 @@ class TransferServiceTest extends TestCase
 
     public function testTransferThrowsWhenSourceAndTargetWalletAreTheSame(): void
     {
-        $this->walletRepository->expects(self::never())->method('findById');
+        $this->walletRepository->expects(self::never())->method('findByIdForUpdate');
+        $this->databaseTransactionManager->expects(self::never())->method('transactional');
         $this->walletRepository->expects(self::never())->method('save');
         $this->transactionRepository->expects(self::never())->method('save');
 
@@ -148,7 +161,7 @@ class TransferServiceTest extends TestCase
     {
         $this->walletRepository
             ->expects($this->once())
-            ->method('findById')
+            ->method('findByIdForUpdate')
             ->with(99)
             ->willReturn(null);
 
@@ -183,7 +196,7 @@ class TransferServiceTest extends TestCase
 
         $this->walletRepository
             ->expects($this->once())
-            ->method('findById')
+            ->method('findByIdForUpdate')
             ->with(1)
             ->willReturn($fromWallet);
 
@@ -219,5 +232,6 @@ class TransferServiceTest extends TestCase
     private function stubWallets(array $map): void
     {
         $this->walletRepository->method('findById')->willReturnMap($map);
+        $this->walletRepository->method('findByIdForUpdate')->willReturnMap($map);
     }
 }

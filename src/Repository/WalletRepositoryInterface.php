@@ -11,6 +11,11 @@ interface WalletRepositoryInterface
 {
     public function findById(int $id): ?Wallet;
 
+    /**
+     * Same as findById(), but locks the row until the surrounding database transaction ends.
+     */
+    public function findByIdForUpdate(int $id): ?Wallet;
+
     /** @return Wallet[] */
     public function findByUserId(int $userId): array;
 

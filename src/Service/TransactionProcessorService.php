@@ -8,6 +8,7 @@ use App\Entity\Transaction;
 use App\Entity\Wallet;
 use App\Enum\TransactionStatus;
 use App\Repository\CompanyWalletRepositoryInterface;
+use App\Repository\DatabaseTransactionManagerInterface;
 use App\Repository\TransactionRepositoryInterface;
 use App\Repository\WalletRepositoryInterface;
 use App\Util\Money;
@@ -19,58 +20,101 @@ final readonly class TransactionProcessorService
         private WalletRepositoryInterface $walletRepository,
         private TransactionRepositoryInterface $transactionRepository,
         private CompanyWalletRepositoryInterface $companyWalletRepository,
+        private DatabaseTransactionManagerInterface $databaseTransactionManager,
     ) {
     }
 
     /**
      * Completes the transaction, or rejects it when a wallet is missing.
      *
-     * @return bool false when the transaction was already processed
+     * @return bool false when the transaction was already processed elsewhere; $transaction then reflects its current state
      */
     public function complete(Transaction $transaction): bool
     {
-        if (!$this->isProcessable($transaction)) {
-            return false;
-        }
-
-        $fromWallet = $this->walletRepository->findById($transaction->getFromWalletId());
-        $toWallet = $this->walletRepository->findById($transaction->getToWalletId());
-
-        if (null === $fromWallet || null === $toWallet) {
-            $this->refundAndReject($transaction, $fromWallet);
-        } else {
-            // The source wallet was already debited when the transfer was created.
-            $toWallet->setBalance(bcadd($toWallet->getBalance(), $transaction->getToAmount(), Money::SCALE));
-            $toWallet->setLastActivityAt(new DateTimeImmutable());
-            $this->walletRepository->save($toWallet);
-
-            if (bccomp($transaction->getSpread(), '0', Money::SCALE) > 0) {
-                $this->companyWalletRepository->addToBalance($transaction->getToCurrency(), $transaction->getSpread());
+        return $this->databaseTransactionManager->transactional(function () use ($transaction): bool {
+            $locked = $this->lockIfProcessable($transaction);
+            if (null === $locked) {
+                return false;
             }
 
-            $this->finish($transaction, TransactionStatus::COMPLETED);
-        }
+            [$fromWallet, $toWallet] = $this->lockWallets($locked->getFromWalletId(), $locked->getToWalletId());
 
-        return true;
+            if (null === $fromWallet || null === $toWallet) {
+                $this->refundAndReject($locked, $fromWallet);
+            } else {
+                // The source wallet was already debited when the transfer was created.
+                $toWallet->setBalance(bcadd($toWallet->getBalance(), $locked->getToAmount(), Money::SCALE));
+                $toWallet->setLastActivityAt(new DateTimeImmutable());
+                $this->walletRepository->save($toWallet);
+
+                if (bccomp($locked->getSpread(), '0', Money::SCALE) > 0) {
+                    $this->companyWalletRepository->addToBalance($locked->getToCurrency(), $locked->getSpread());
+                }
+
+                $this->finish($locked, TransactionStatus::COMPLETED);
+            }
+
+            $this->syncState($locked, $transaction);
+
+            return true;
+        });
     }
 
     /**
-     * @return bool false when the transaction was already processed
+     * @return bool false when the transaction was already processed elsewhere; $transaction then reflects its current state
      */
     public function reject(Transaction $transaction): bool
     {
-        if (!$this->isProcessable($transaction)) {
-            return false;
-        }
+        return $this->databaseTransactionManager->transactional(function () use ($transaction): bool {
+            $locked = $this->lockIfProcessable($transaction);
+            if (null === $locked) {
+                return false;
+            }
 
-        $this->refundAndReject($transaction, $this->walletRepository->findById($transaction->getFromWalletId()));
+            $this->refundAndReject($locked, $this->walletRepository->findByIdForUpdate($locked->getFromWalletId()));
+            $this->syncState($locked, $transaction);
 
-        return true;
+            return true;
+        });
     }
 
-    private function isProcessable(Transaction $transaction): bool
+    /**
+     * Re-reads the transaction under a row lock, so two concurrent runs cannot both process it.
+     */
+    private function lockIfProcessable(Transaction $transaction): ?Transaction
     {
-        return in_array($transaction->getStatus(), [TransactionStatus::PENDING, TransactionStatus::FRAUD_REVIEW], true);
+        $id = $transaction->getId();
+        $locked = null !== $id ? $this->transactionRepository->findByIdForUpdate($id) : null;
+
+        if (null === $locked) {
+            return null;
+        }
+
+        if (!in_array($locked->getStatus(), [TransactionStatus::PENDING, TransactionStatus::FRAUD_REVIEW], true)) {
+            $this->syncState($locked, $transaction);
+
+            return null;
+        }
+
+        return $locked;
+    }
+
+    /**
+     * Locks both wallets in ascending id order, so concurrent runs always take locks in the same order and cannot deadlock.
+     *
+     * @return array{?Wallet, ?Wallet}
+     */
+    private function lockWallets(int $fromWalletId, int $toWalletId): array
+    {
+        $ids = [$fromWalletId, $toWalletId];
+        sort($ids);
+
+        $wallets = [];
+        foreach ($ids as $id) {
+            $wallets[$id] = $this->walletRepository->findByIdForUpdate($id);
+        }
+
+        return [$wallets[$fromWalletId], $wallets[$toWalletId]];
     }
 
     private function refundAndReject(Transaction $transaction, ?Wallet $fromWallet): void
@@ -94,5 +138,15 @@ final readonly class TransactionProcessorService
         }
 
         $this->transactionRepository->save($transaction);
+    }
+
+    private function syncState(Transaction $source, Transaction $target): void
+    {
+        if ($source === $target) {
+            return;
+        }
+
+        $target->setStatus($source->getStatus());
+        $target->setAntiFraudCheckedAt($source->getAntiFraudCheckedAt());
     }
 }

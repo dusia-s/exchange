@@ -7,6 +7,7 @@ namespace App\Service;
 use App\Entity\Wallet;
 use App\Exception\WalletBlockedException;
 use App\Exception\WalletNotFoundException;
+use App\Repository\DatabaseTransactionManagerInterface;
 use App\Repository\WalletRepositoryInterface;
 use App\Util\Money;
 use DateTimeImmutable;
@@ -17,24 +18,27 @@ readonly class DepositService
 
     public function __construct(
         private WalletRepositoryInterface $walletRepository,
+        private DatabaseTransactionManagerInterface $databaseTransactionManager,
     ) {
     }
 
     public function deposit(int $userId, int $walletId, string $amount): Wallet
     {
-        $wallet = $this->walletRepository->findById($walletId);
-        if (null === $wallet || $wallet->getUserId() !== $userId) {
-            throw new WalletNotFoundException($walletId);
-        }
+        return $this->databaseTransactionManager->transactional(function () use ($userId, $walletId, $amount): Wallet {
+            $wallet = $this->walletRepository->findByIdForUpdate($walletId);
+            if (null === $wallet || $wallet->getUserId() !== $userId) {
+                throw new WalletNotFoundException($walletId);
+            }
 
-        if ($wallet->isBlocked()) {
-            throw new WalletBlockedException($walletId);
-        }
+            if ($wallet->isBlocked()) {
+                throw new WalletBlockedException($walletId);
+            }
 
-        $wallet->setBalance(bcadd($wallet->getBalance(), Money::round($amount), Money::SCALE));
-        $wallet->setLastActivityAt(new DateTimeImmutable());
-        $this->walletRepository->save($wallet);
+            $wallet->setBalance(bcadd($wallet->getBalance(), Money::round($amount), Money::SCALE));
+            $wallet->setLastActivityAt(new DateTimeImmutable());
+            $this->walletRepository->save($wallet);
 
-        return $wallet;
+            return $wallet;
+        });
     }
 }
