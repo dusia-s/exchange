@@ -19,6 +19,11 @@ interface TransactionRepositoryInterface
     /** @return Transaction[] */
     public function findByWalletId(int $walletId): array;
 
+    /**
+     * Whether the wallet sends or receives a transaction that is still pending or in fraud review.
+     */
+    public function hasOpenTransactions(int $walletId): bool;
+
     /** @return Transaction[] */
     public function findByStatus(TransactionStatus $status): array;
 

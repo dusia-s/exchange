@@ -56,4 +56,19 @@ class WalletTest extends TestCase
 
         $this->assertNull($wallet->getLastActivityAt());
     }
+
+    public function testMarkDeletedAndRestore(): void
+    {
+        $wallet = Wallet::create(userId: 1, currency: Currency::PLN);
+        $this->assertFalse($wallet->isDeleted());
+        $this->assertNull($wallet->getDeletedAt());
+
+        $wallet->markDeleted();
+        $this->assertTrue($wallet->isDeleted());
+        $this->assertNotNull($wallet->getDeletedAt());
+
+        $wallet->restore();
+        $this->assertFalse($wallet->isDeleted());
+        $this->assertNull($wallet->getDeletedAt());
+    }
 }

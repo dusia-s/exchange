@@ -7,6 +7,9 @@ namespace App\Repository;
 use App\Entity\Wallet;
 use App\Enum\Currency;
 
+/**
+ * Deleted wallets are invisible to every finder except findDeletedByUserIdAndCurrency().
+ */
 interface WalletRepositoryInterface
 {
     public function findById(int $id): ?Wallet;
@@ -20,6 +23,8 @@ interface WalletRepositoryInterface
     public function findByUserId(int $userId): array;
 
     public function findByUserIdAndCurrency(int $userId, Currency $currency): ?Wallet;
+
+    public function findDeletedByUserIdAndCurrency(int $userId, Currency $currency): ?Wallet;
 
     public function save(Wallet $wallet): void;
 }

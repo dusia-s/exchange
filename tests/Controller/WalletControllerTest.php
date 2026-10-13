@@ -13,6 +13,8 @@ use App\Enum\TransactionStatus;
 use App\Exception\InsufficientFundsException;
 use App\Exception\WalletAlreadyExistsException;
 use App\Exception\WalletBlockedException;
+use App\Exception\WalletHasPendingTransactionsException;
+use App\Exception\WalletNotEmptyException;
 use App\Exception\WalletNotFoundException;
 use App\Repository\WalletRepositoryInterface;
 use App\Service\DepositService;
@@ -22,6 +24,7 @@ use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Request;
 use Throwable;
 
@@ -139,6 +142,73 @@ class WalletControllerTest extends TestCase
 
         $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('Wallet for user 1 in currency PLN already exists.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function testDeleteReturnsNoContent(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->walletService
+            ->expects(self::once())
+            ->method('deleteWallet')
+            ->with(1, 5);
+
+        $response = $this->controller->delete(5, $user);
+
+        self::assertSame(204, $response->getStatusCode());
+        self::assertSame('', $response->getContent());
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function testDeleteReturnsNotFoundWhenWalletMissing(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->walletService
+            ->method('deleteWallet')
+            ->willThrowException(new WalletNotFoundException(99));
+
+        $response = $this->controller->delete(99, $user);
+
+        self::assertSame(404, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Wallet 99 not found.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
+    #[DataProvider('undeletableWalletProvider')]
+    public function testDeleteReturnsUnprocessableWhenWalletCannotBeDeleted(RuntimeException $exception): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->walletService
+            ->method('deleteWallet')
+            ->willThrowException($exception);
+
+        $response = $this->controller->delete(5, $user);
+
+        self::assertSame(422, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($exception->getMessage(), $data['error']);
+    }
+
+    /**
+     * @return iterable<string, array{RuntimeException}>
+     */
+    public static function undeletableWalletProvider(): iterable
+    {
+        yield 'blocked' => [new WalletBlockedException(5)];
+        yield 'balance not zero' => [new WalletNotEmptyException(5)];
+        yield 'pending transactions' => [new WalletHasPendingTransactionsException(5)];
     }
 
     /**

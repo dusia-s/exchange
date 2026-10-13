@@ -85,6 +85,27 @@ readonly class TransactionRepository implements TransactionRepositoryInterface
     }
 
     /**
+     * @throws Exception
+     */
+    public function hasOpenTransactions(int $walletId): bool
+    {
+        $qb = $this->connection->createQueryBuilder();
+
+        $qb
+            ->select('1')
+            ->from(self::TABLE_NAME)
+            ->where('from_wallet_id = :wallet_id OR to_wallet_id = :wallet_id')
+            ->andWhere('status IN (:pending, :fraud_review)')
+            ->setMaxResults(1);
+
+        return false !== $this->connection->fetchOne($qb->getSQL(), [
+            'wallet_id' => $walletId,
+            'pending' => TransactionStatus::PENDING->value,
+            'fraud_review' => TransactionStatus::FRAUD_REVIEW->value,
+        ]);
+    }
+
+    /**
      * @return Transaction[]
      *
      * @throws Exception

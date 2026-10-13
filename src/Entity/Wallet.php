@@ -17,6 +17,7 @@ class Wallet
         private bool $isBlocked,
         private ?DateTimeImmutable $lastActivityAt,
         private readonly DateTimeImmutable $createdAt,
+        private ?DateTimeImmutable $deletedAt = null,
     ) {
     }
 
@@ -81,5 +82,28 @@ class Wallet
     public function setLastActivityAt(?DateTimeImmutable $lastActivityAt): void
     {
         $this->lastActivityAt = $lastActivityAt;
+    }
+
+    public function getDeletedAt(): ?DateTimeImmutable
+    {
+        return $this->deletedAt;
+    }
+
+    public function isDeleted(): bool
+    {
+        return null !== $this->deletedAt;
+    }
+
+    public function markDeleted(): void
+    {
+        $this->deletedAt = new DateTimeImmutable();
+    }
+
+    /**
+     * Brings back a deleted wallet when the user creates one in the same currency again, keeping its id and history.
+     */
+    public function restore(): void
+    {
+        $this->deletedAt = null;
     }
 }
