@@ -394,6 +394,80 @@ class WalletControllerTest extends TestCase
     /**
      * @throws Throwable
      */
+    public function testCreateReturnsBadRequestWhenCurrencyIsNotString(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $request = new Request(content: json_encode(['currency' => ['PLN']], JSON_THROW_ON_ERROR));
+        $response = $this->controller->create($request, $user);
+
+        self::assertSame(400, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('Invalid currency.', $data['error']);
+    }
+
+    /**
+     * @throws Throwable
+     */
+    #[DataProvider('invalidWalletIdProvider')]
+    public function testTransferReturnsBadRequestWhenWalletIdInvalid(mixed $walletId): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->transferService->expects(self::never())->method('transfer');
+
+        $request = new Request(content: json_encode([
+            'fromWalletId' => $walletId,
+            'toWalletId' => 2,
+            'amount' => '100.00',
+        ], JSON_THROW_ON_ERROR));
+        $response = $this->controller->transfer($request, $user);
+
+        self::assertSame(400, $response->getStatusCode());
+
+        $data = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('fromWalletId must be a positive integer.', $data['error']);
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function invalidWalletIdProvider(): iterable
+    {
+        yield 'text' => ['abc'];
+        yield 'fraction' => [1.9];
+        yield 'zero' => [0];
+        yield 'negative' => [-1];
+        yield 'boolean' => [true];
+    }
+
+    /**
+     * @throws Throwable
+     */
+    public function testTransferAcceptsNumericStringWalletIds(): void
+    {
+        $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());
+
+        $this->transferService
+            ->expects(self::once())
+            ->method('transfer')
+            ->with(1, 1, 2, '100.00')
+            ->willReturn(Transaction::create(1, 2, '100.0000', '25.0000', Currency::PLN, Currency::EUR, '0.1300', '0.250000', false));
+
+        $request = new Request(content: json_encode([
+            'fromWalletId' => '1',
+            'toWalletId' => '2',
+            'amount' => '100.00',
+        ], JSON_THROW_ON_ERROR));
+        $response = $this->controller->transfer($request, $user);
+
+        self::assertSame(201, $response->getStatusCode());
+    }
+
+    /**
+     * @throws Throwable
+     */
     public function testTransferReturnsBadRequestWhenWalletsAreTheSame(): void
     {
         $user = new User(1, 'test@example.com', ['ROLE_USER'], new DateTimeImmutable());

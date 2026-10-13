@@ -25,7 +25,6 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\CurrentUser;
-use ValueError;
 
 #[Route('/api/wallets')]
 final class WalletController extends AbstractController
@@ -58,9 +57,8 @@ final class WalletController extends AbstractController
             return new JsonResponse(['error' => 'Missing required field: currency.'], Response::HTTP_BAD_REQUEST);
         }
 
-        try {
-            $currency = Currency::from($data['currency']);
-        } catch (ValueError) {
+        $currency = is_string($data['currency']) ? Currency::tryFrom($data['currency']) : null;
+        if (null === $currency) {
             return new JsonResponse(['error' => 'Invalid currency.'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -87,23 +85,28 @@ final class WalletController extends AbstractController
             }
         }
 
+        $walletIds = [];
+        foreach (['fromWalletId', 'toWalletId'] as $field) {
+            $walletIds[$field] = $this->parseId($data[$field]);
+            if (null === $walletIds[$field]) {
+                return new JsonResponse(['error' => sprintf('%s must be a positive integer.', $field)], Response::HTTP_BAD_REQUEST);
+            }
+        }
+
         $amountError = $this->validateAmount($data['amount']);
         if (null !== $amountError) {
             return new JsonResponse(['error' => $amountError], Response::HTTP_BAD_REQUEST);
         }
 
-        $fromWalletId = (int) $data['fromWalletId'];
-        $toWalletId = (int) $data['toWalletId'];
-
-        if ($fromWalletId === $toWalletId) {
+        if ($walletIds['fromWalletId'] === $walletIds['toWalletId']) {
             return new JsonResponse(['error' => 'Source and target wallet must differ.'], Response::HTTP_BAD_REQUEST);
         }
 
         try {
             $transaction = $this->transferService->transfer(
                 $user->getIdNotNull(),
-                $fromWalletId,
-                $toWalletId,
+                $walletIds['fromWalletId'],
+                $walletIds['toWalletId'],
                 (string) $data['amount'],
             );
         } catch (SameWalletTransferException $e) {
@@ -182,6 +185,18 @@ final class WalletController extends AbstractController
     private function invalidJsonResponse(): JsonResponse
     {
         return new JsonResponse(['error' => 'Request body must be a valid JSON object.'], Response::HTTP_BAD_REQUEST);
+    }
+
+    /**
+     * Accepts a positive JSON integer or a string of digits, so "abc" or 1.9 are rejected instead of being cast silently.
+     */
+    private function parseId(mixed $value): ?int
+    {
+        if (is_string($value) && 1 === preg_match('/^\d{1,10}$/', $value)) {
+            $value = (int) $value;
+        }
+
+        return is_int($value) && $value > 0 ? $value : null;
     }
 
     /**
